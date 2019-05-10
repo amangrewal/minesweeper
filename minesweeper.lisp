@@ -157,8 +157,8 @@
                             (throw 'game-over :won))
                           (pprint-board game-board))
                         (format t "Invalid selection. ")))))
-      (:lost (pprint-board game-board) (format t "You lost."))
-      (:won (pprint-board game-board) (format t "Congratulations! You won!"))
+      (:lost (pprint-board game-board) (format t "You lost.~%"))
+      (:won (pprint-board game-board) (format t "Congratulations! You won!~%"))
       (t (error "We shouldn't be here"))))
   (values))
 
