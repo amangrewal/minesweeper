@@ -1,11 +1,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; TODO:
 ;;;;
-;;;;    -Allow for more than 26 columns
-;;;;    -Ask for board size on startup
 ;;;;    -Better printing (ncurses?)
-;;;;    -Allow mines to be marked
+;;;;    -Allow for more than 26 columns
+;;;;            -Only after better printing and/or mouse support. It's really hard to see which
+;;;;            square is which, even on moderately sized boards.
+;;;;    -Better error messages
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun trim-whitespace (str)
+  (let ((whitespace #(#\Space #\Tab)))
+    (string-trim whitespace str)))
 
 (defmacro with-game-result (expr &rest end-forms)
   `(case (catch 'game-result
@@ -20,11 +25,11 @@
   (throw 'game-result 'lose))
 
 (defclass cell ()
-  ((visible :reader visiblep :type boolean :initform nil)
+  ((visible :reader visibility :type keyword :initform :invisible)
    (value :reader value :type fixnum :initform 0)))
 
 (defmethod make-visible ((cell cell))
-  (setf (slot-value cell 'visible) t))
+  (setf (slot-value cell 'visible) :visible))
 
 (defmethod minep ((cell cell))
   "Is the cell a mine?"
@@ -33,14 +38,24 @@
 (defmethod make-mine ((cell cell))
   (setf (slot-value cell 'value) -1))
 
+(defmethod make-marked ((cell cell))
+  (cond
+    ((eq (visibility cell) :marked)
+     (setf (slot-value cell 'visible) :invisible)
+     -1)  
+    (t
+     (setf (slot-value cell 'visible) :marked)
+     1)))
+
 (defun print-value (cell)
   "Returns a string representing what the cell should be pretty-printed as."
-  (if (visiblep cell)
-      (cond 
-        ((minep cell) "*")
-        ((zerop (value cell)) " ")
-        (t (value cell)))
-      "."))
+  (case (visibility cell)
+      (:visible (cond 
+                  ((minep cell) "*")
+                  ((zerop (value cell)) " ")
+                  (t (value cell))))
+      (:marked "F")
+      (:invisible ".")))
 
 (defclass board ()
   ((board :accessor board)
@@ -72,19 +87,21 @@
 (defmethod insert-mine ((board board) x y)
   (make-mine (pos board x y)))
 
+(defmethod mark ((board board) x y)
+  (incf (num-marked board) (make-marked (pos board x y))))
+
 (defmethod click ((board board) x y)
   (let ((c (pos board x y)))
-    (unless (visiblep c)
+    (unless (member (visibility c) '(:visible :marked))
       (make-visible c)
       (incf (num-visible board))
       (cond
         ((minep c)
-         (throw 'game-over :lost))
+         (lose))
         ((zerop (value c))
-         (loop for i from -1 to 1
-               do (loop for j from -1 to 1
-                        ;;ignore out-of-bounds errors to simplify code around edges of board
-                        do (call-ignoring-out-of-bounds #'click board (+ x i) (+ y j) nil))))
+         (loop for (i j) in '((0 -1) (1 0) (0 1) (-1 0))
+               ;;ignore out-of-bounds errors to simplify code around edges of board
+               do (call-ignoring-out-of-bounds #'click board (+ x i) (+ y j) nil)))
         ;;otherwise do nothing else
         ))))
 
@@ -123,15 +140,16 @@
 (defun pprint-board (board starting-time)
   "Prints the board all pretty like"
   (print-status-line board starting-time)
-  (format t " ")
-  (loop for x from 0 below (width board)
-        do (format t " ~c " (code-char (+ x (char-code #\A)))))
-  (terpri)
-  (loop for y from 0 below (height board)
-        do (format t "~d" y)
-           (loop for x from 0 below (width board)
-                 do (format t " ~a " (print-value (pos board x y))))
-           (terpri)))
+  (let ((first-column-width (floor (1+ (log (height board) 10)))))
+    (format t "~va" first-column-width " ")
+    (loop for x from 0 below (width board)
+          do (format t " ~c " (code-char (+ x (char-code #\A)))))
+    (terpri)
+    (loop for y from 0 below (height board)
+          do (format t "~vd" first-column-width y)
+          (loop for x from 0 below (width board)
+                do (format t " ~a " (print-value (pos board x y))))
+          (terpri))))
 
 (defun prompt (str prompt &rest args)
   (apply #'format str prompt args)
@@ -143,23 +161,34 @@
 
 (defun parse-input (input max-x max-y)
   "Validates and parses input. The return value is either a list of 2 non-negative integers (x y) or nil.
-   
+
    Only returns nil when the input is invalid."
-  (let ((start-of-string (position-if-not (lambda (x) (member x '(#\Space #\Tab))) input))
+  (let ((input (string-upcase (trim-whitespace input)))
+        (action :click)
         (x nil)
-        (y nil))
-    (setf x (when start-of-string
-              (let ((col (char-upcase (char input start-of-string))))
-                (when (and (char>= col #\A) (char<= col #\Z))
-                  (- (char-code col) (char-code #\A))))))
-    (handler-case (setf y (parse-integer input :start (1+ start-of-string) :junk-allowed t))
+        (y nil)
+        (pos 0))
+    (format t "~a ~a ~a ~a ~a~%" input action x y pos)
+    (setf x (cond ((and (char= (char input pos) #\F)
+                        (char>= (char input (1+ pos)) #\A)
+                        (char<= (char input (1+ pos)) #\Z))
+                   (progn
+                     (setf action :mark)  
+                     (incf pos)
+                     (format t "~a ~a ~a ~a ~a~%" input action x y pos)
+                     (- (char-code (char input pos)) (char-code #\A))))
+                  ((and (char>= (char input pos) #\A) (char<= (char input pos) #\Z))
+                   (- (char-code (char input pos)) (char-code #\A)))
+                  (t nil)))
+    (handler-case (setf y (parse-integer input :start (1+ pos) :junk-allowed t))
       (error nil))
+    (format t "~a ~a ~a ~a ~a~%" input action x y pos)
     (if (or (null x)
             (null y)
             (not (typep x (list 'integer 0 max-x)))
             (not (typep y (list 'integer 0 max-y))))
         nil
-        (list x y))))
+        (list action x y))))
 
 (defun print-welcome-message ()
   (format t "Welcome to minesweeper.~%"))
@@ -173,9 +202,11 @@
   (let ((width 0)
         (height 0))
     (handler-case (multiple-value-bind (width pos) (parse-integer line :junk-allowed t)
-                    (setf height (parse-integer line :start (1+ pos) :junk-allowed t))
-                    (if (and (>= width 2)
-                             (>= height 2)
+                    (setf height (parse-integer line :start (1+ pos)))
+                    (if (and width
+                             height
+                             (>= width 3)
+                             (>= height 3)
                              (<= width 26))
                         (list height width)
                         (format t "Invalid size, using default (5x5).~%")))
@@ -195,8 +226,10 @@
                                             (1- (width game-board))
                                             (1- (height game-board)))))
              (if parsed-input
-                 (destructuring-bind (x y) parsed-input
-                   (click game-board x y)
+                 (destructuring-bind (action x y) parsed-input
+                   (case action
+                     (:click (format t "~a asdf~%" action) (click game-board x y))
+                     (:mark (format t "here~%") (mark game-board x y)))
                    (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
