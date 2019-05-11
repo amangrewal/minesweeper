@@ -6,8 +6,6 @@
 ;;;;    -Print status bar
 ;;;;    -Better printing (ncurses?)
 ;;;;    -Allow mines to be marked
-;;;;    -Make this Work on other implementations
-;;;;            -Currently, only sbcl and ecl are supported
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defclass cell ()
@@ -36,7 +34,8 @@
 (defclass board ()
   ((board :accessor board :initform (make-array '(5 5)))
    (num-mines :reader num-mines :type (integer 0 *))
-   (num-visible :accessor num-visible :type (integer 0 *) :initform 0)))
+   (num-visible :accessor num-visible :type (integer 0 *) :initform 0)
+   (num-marked :accessor num-marked :type (integer 0 *) :initform 0)))
 
 (defmethod width ((board board))
   (array-dimension (board board) 1))
@@ -44,6 +43,18 @@
 (defmethod height ((board board))
   (array-dimension (board board) 0))
 
+(defmethod size ((board board))
+  (* (width board) (height board)))
+
+(defmacro call-ignoring-out-of-bounds (fun board x y default-val &rest more-args)
+  "Calls (fun board x y), ignoring any out-of-bound errors"
+  `(if (and (>= ,x 0)
+            (>= ,y 0)
+            (< ,x (width ,board))
+            (< ,y (height ,board)))
+       (apply ,fun ,board ,x ,y ,more-args)
+       ,default-val))
+  
 (defmethod pos ((board board) x y)
   (aref (board board) y x))
 
@@ -62,9 +73,7 @@
          (loop for i from -1 to 1
                do (loop for j from -1 to 1
                         ;;ignore out-of-bounds errors to simplify code around edges of board
-                        do (handler-case (click board (+ x i) (+ y j))
-                             #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)))
-                             #+(or ecl clisp) (simple-type-error (var) (declare (ignore var)))))))
+                        do (call-ignoring-out-of-bounds #'click board (+ x i) (+ y j) nil))))
         ;;otherwise do nothing else
         ))))
 
@@ -92,9 +101,10 @@
                             with total = 0
                             do (loop for l from -1 to 1
                                      ;;ignore out-of-bounds errors to simplify code around edges of board
-                                     when (handler-case (minep (pos board (+ x k) (+ y l)))
-                                            #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)) nil)
-                                            #+(or ecl clisp) (simple-type-error (var) (declare (ignore var))))
+                                     when (call-ignoring-out-of-bounds
+                                            (lambda (&rest args) (minep (apply #'pos args)))
+                                            board (+ x k) (+ y l)
+                                            nil)
                                      do (incf total))
                             finally (setf (slot-value (pos board x y) 'value) total))))))
 
@@ -141,10 +151,16 @@
 (defun print-welcome-message ()
   (format t "Welcome to minesweeper.~%"))
 
+(defun print-status-line (board starting-time)
+  (format t "~2%Mines remaining: ~d Time: ~d~%" (- (num-mines board) (num-marked board))
+                                                (- (get-universal-time) starting-time)))
+
 (defun game-loop ()
   (print-welcome-message)
   (setf *random-state* (make-random-state t))
-  (let ((game-board (make-instance 'board)))
+  (let ((game-board (make-instance 'board))
+        (starting-time (get-universal-time)))
+    (print-status-line game-board starting-time)
     (pprint-board game-board)
     (case (catch 'game-over
              (loop
@@ -157,6 +173,7 @@
                           (when (= (num-mines game-board) (- (* (width game-board) (height game-board))
                                                              (num-visible game-board)))
                             (throw 'game-over :won))
+                          (print-status-line game-board starting-time)
                           (pprint-board game-board))
                         (format t "Invalid selection. ")))))
       (:lost (pprint-board game-board) (format t "You lost.~%"))
