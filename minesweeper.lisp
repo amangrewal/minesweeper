@@ -7,7 +7,7 @@
 ;;;;    -Better printing (ncurses?)
 ;;;;    -Allow mines to be marked
 ;;;;    -Make this Work on other implementations
-;;;;            -Currently, only sbcl is supported
+;;;;            -Currently, only sbcl and ecl are supported
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defclass cell ()
@@ -63,7 +63,8 @@
                do (loop for j from -1 to 1
                         ;;ignore out-of-bounds errors to simplify code around edges of board
                         do (handler-case (click board (+ x i) (+ y j))
-                             #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)))))))
+                             #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)))
+                             #+(or ecl clisp) (simple-type-error (var) (declare (ignore var)))))))
         ;;otherwise do nothing else
         ))))
 
@@ -92,7 +93,8 @@
                             do (loop for l from -1 to 1
                                      ;;ignore out-of-bounds errors to simplify code around edges of board
                                      when (handler-case (minep (pos board (+ x k) (+ y l)))
-                                            #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)) nil))
+                                            #+sbcl (sb-int:invalid-array-index-error (var) (declare (ignore var)) nil)
+                                            #+(or ecl clisp) (simple-type-error (var) (declare (ignore var))))
                                      do (incf total))
                             finally (setf (slot-value (pos board x y) 'value) total))))))
 
