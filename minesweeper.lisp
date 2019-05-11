@@ -8,6 +8,18 @@
 ;;;;    -Allow mines to be marked
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defmacro with-game-result (expr &rest end-forms)
+  `(case (catch 'game-result
+            ,expr)
+     ,@end-forms
+     (t (error "We shouldn't be here."))))
+
+(defun win ()
+  (throw 'game-result 'win))
+
+(defun lose ()
+  (throw 'game-result 'lose))
+
 (defclass cell ()
   ((visible :reader visiblep :type boolean :initform nil)
    (value :reader value :type fixnum :initform 0)))
@@ -108,8 +120,9 @@
                                      do (incf total))
                             finally (setf (slot-value (pos board x y) 'value) total))))))
 
-(defun pprint-board (board)
+(defun pprint-board (board starting-time)
   "Prints the board all pretty like"
+  (print-status-line board starting-time)
   (format t " ")
   (loop for x from 0 below (width board)
         do (format t " ~c " (code-char (+ x (char-code #\A)))))
@@ -160,25 +173,22 @@
   (setf *random-state* (make-random-state t))
   (let ((game-board (make-instance 'board))
         (starting-time (get-universal-time)))
-    (print-status-line game-board starting-time)
-    (pprint-board game-board)
-    (case (catch 'game-over
-             (loop
-               do (let ((parsed-input (parse-input (prompt t "Pick a square: ")
-                                                   (1- (width game-board))
-                                                   (1- (height game-board)))))
-                    (if parsed-input
-                        (destructuring-bind (x y) parsed-input
-                          (click game-board x y)
-                          (when (= (num-mines game-board) (- (* (width game-board) (height game-board))
-                                                             (num-visible game-board)))
-                            (throw 'game-over :won))
-                          (print-status-line game-board starting-time)
-                          (pprint-board game-board))
-                        (format t "Invalid selection. ")))))
-      (:lost (pprint-board game-board) (format t "You lost.~%"))
-      (:won (pprint-board game-board) (format t "Congratulations! You won!~%"))
-      (t (error "We shouldn't be here"))))
+    (pprint-board game-board starting-time)
+    (with-game-result
+      (loop
+        do (let ((parsed-input (parse-input (prompt t "Pick a square: ")
+                                            (1- (width game-board))
+                                            (1- (height game-board)))))
+             (if parsed-input
+                 (destructuring-bind (x y) parsed-input
+                   (click game-board x y)
+                   (when (= (num-mines game-board) (- (* (width game-board) (height game-board))
+                                                      (num-visible game-board)))
+                     (win))
+                   (pprint-board game-board starting-time))
+                 (format t "Invalid selection. "))))
+      (win (pprint-board game-board starting-time) (format t "Congratulations! You won!~%"))
+      (lose (pprint-board game-board starting-time) (format t "You lost.~%"))))
   (values))
 
 (defun debug-print (b)
