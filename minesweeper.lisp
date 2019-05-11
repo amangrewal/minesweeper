@@ -3,7 +3,6 @@
 ;;;;
 ;;;;    -Allow for more than 26 columns
 ;;;;    -Ask for board size on startup
-;;;;    -Print status bar
 ;;;;    -Better printing (ncurses?)
 ;;;;    -Allow mines to be marked
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -44,7 +43,7 @@
       "."))
 
 (defclass board ()
-  ((board :accessor board :initform (make-array '(5 5)))
+  ((board :accessor board)
    (num-mines :reader num-mines :type (integer 0 *))
    (num-visible :accessor num-visible :type (integer 0 *) :initform 0)
    (num-marked :accessor num-marked :type (integer 0 *) :initform 0)))
@@ -89,10 +88,11 @@
         ;;otherwise do nothing else
         ))))
 
-(defmethod initialize-instance :after ((board board) &key)
+(defmethod initialize-instance :after ((board board) &key size)
   "Places mines and sets numbers accordingly."
   (declare (optimize (debug 3) (speed 0) (safety 3)))
-  (loop for i from 0 below (* (height board) (width board))
+  (setf (board board) (make-array size))
+  (loop for i from 0 below (size board)
         do (setf (row-major-aref (board board) i) (make-instance 'cell)))
   (setf (slot-value board 'num-mines) (ceiling (* (width board) (height board))
                                                10))
@@ -168,11 +168,26 @@
   (format t "~2%Mines remaining: ~d Time: ~d~%" (- (num-mines board) (num-marked board))
                                                 (- (get-universal-time) starting-time)))
 
+(defun validate-size (line)
+  "Returns either a list containing 2 positive integers or nil."
+  (let ((width 0)
+        (height 0))
+    (handler-case (multiple-value-bind (width pos) (parse-integer line :junk-allowed t)
+                    (setf height (parse-integer line :start (1+ pos) :junk-allowed t))
+                    (if (and (>= width 2)
+                             (>= height 2)
+                             (<= width 26))
+                        (list height width)
+                        (format t "Invalid size, using default (5x5).~%")))
+      (error nil))))
+
 (defun game-loop ()
   (print-welcome-message)
   (setf *random-state* (make-random-state t))
-  (let ((game-board (make-instance 'board))
-        (starting-time (get-universal-time)))
+  
+  (let* ((size (validate-size (prompt t "Please choose a board size: ")))
+         (game-board (make-instance 'board :size (or size '(5 5))))
+         (starting-time (get-universal-time)))
     (pprint-board game-board starting-time)
     (with-game-result
       (loop
@@ -182,7 +197,7 @@
              (if parsed-input
                  (destructuring-bind (x y) parsed-input
                    (click game-board x y)
-                   (when (= (num-mines game-board) (- (* (width game-board) (height game-board))
+                   (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
                    (pprint-board game-board starting-time))
