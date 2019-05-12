@@ -168,21 +168,18 @@
         (x nil)
         (y nil)
         (pos 0))
-    (format t "~a ~a ~a ~a ~a~%" input action x y pos)
     (setf x (cond ((and (char= (char input pos) #\F)
                         (char>= (char input (1+ pos)) #\A)
                         (char<= (char input (1+ pos)) #\Z))
                    (progn
                      (setf action :mark)  
                      (incf pos)
-                     (format t "~a ~a ~a ~a ~a~%" input action x y pos)
                      (- (char-code (char input pos)) (char-code #\A))))
                   ((and (char>= (char input pos) #\A) (char<= (char input pos) #\Z))
                    (- (char-code (char input pos)) (char-code #\A)))
                   (t nil)))
     (handler-case (setf y (parse-integer input :start (1+ pos) :junk-allowed t))
       (error nil))
-    (format t "~a ~a ~a ~a ~a~%" input action x y pos)
     (if (or (null x)
             (null y)
             (not (typep x (list 'integer 0 max-x)))
@@ -228,8 +225,8 @@
              (if parsed-input
                  (destructuring-bind (action x y) parsed-input
                    (case action
-                     (:click (format t "~a asdf~%" action) (click game-board x y))
-                     (:mark (format t "here~%") (mark game-board x y)))
+                     (:click (click game-board x y))
+                     (:mark (mark game-board x y)))
                    (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
