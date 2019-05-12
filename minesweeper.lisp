@@ -6,11 +6,20 @@
 ;;;;            -Only after better printing and/or mouse support. It's really hard to see which
 ;;;;            square is which, even on moderately sized boards.
 ;;;;    -Better error messages
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;    -Double clicking functionality
+;;;;
+;;;;    -Tested with ccl, cmucl, ecl, sbcl
+;;;;            -clisp works, but with subpar printing in a shell.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+#-clisp (require 'asdf)
+#-clisp (require 'uiop)
 
 (defun trim-whitespace (str)
   (let ((whitespace #(#\Space #\Tab)))
     (string-trim whitespace str)))
+
+(defun clear-screen ()
+  #-(or swank clisp) (uiop:run-program "clear" :output *standard-output*))
 
 (defmacro with-game-result (expr &rest end-forms)
   `(case (catch 'game-result
@@ -137,6 +146,9 @@
                                      do (incf total))
                             finally (setf (slot-value (pos board x y) 'value) total))))))
 
+(defun print-status-line (board starting-time)
+  (format t "Mines remaining: ~d Time: ~d~%" (- (num-mines board) (num-marked board))
+                                                (- (get-universal-time) starting-time)))
 (defun pprint-board (board starting-time)
   "Prints the board all pretty like"
   (print-status-line board starting-time)
@@ -190,14 +202,9 @@
 (defun print-welcome-message ()
   (format t "Welcome to minesweeper.~%"))
 
-(defun print-status-line (board starting-time)
-  (format t "~2%Mines remaining: ~d Time: ~d~%" (- (num-mines board) (num-marked board))
-                                                (- (get-universal-time) starting-time)))
-
 (defun validate-size (line)
   "Returns either a list containing 2 positive integers or nil."
-  (let ((width 0)
-        (height 0))
+  (let ((height 0))
     (handler-case (multiple-value-bind (width pos) (parse-integer line :junk-allowed t)
                     (setf height (parse-integer line :start (1+ pos)))
                     (if (and width
@@ -210,6 +217,7 @@
       (error nil))))
 
 (defun game-loop ()
+  (clear-screen)
   (print-welcome-message)
   (setf *random-state* (make-random-state t))
   
@@ -230,10 +238,15 @@
                    (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
+                   (clear-screen)
                    (pprint-board game-board starting-time))
                  (format t "Invalid selection. "))))
-      (win (pprint-board game-board starting-time) (format t "Congratulations! You won!~%"))
-      (lose (pprint-board game-board starting-time) (format t "You lost.~%"))))
+      (win (clear-screen)
+           (pprint-board game-board starting-time)
+           (format t "Congratulations! You won!~%"))
+      (lose (clear-screen)
+            (pprint-board game-board starting-time)
+            (format t "You lost.~%"))))
   (values))
 
 (defun debug-print (b)
