@@ -6,7 +6,7 @@
 ;;;;            -Only after better printing and/or mouse support. It's really hard to see which
 ;;;;            square is which, even on moderately sized boards.
 ;;;;    -Better error messages
-;;;;    -Double clicking functionality
+;;;;    -Include instructions
 ;;;;
 ;;;;    -Tested with ccl, cmucl, ecl, sbcl
 ;;;;            -clisp works, but with subpar printing in a shell.
@@ -19,7 +19,9 @@
     (string-trim whitespace str)))
 
 (defun clear-screen ()
-  #-(or swank clisp) (uiop:run-program "clear" :output *standard-output*))
+  ;;using swank here is probably too liberal. I just want to prevent any shenanigans when 
+  ;;using slime or similar.
+  #-(or swank clisp os-windows) (uiop:run-program "clear" :output *standard-output*))
 
 (defmacro with-game-result (expr &rest end-forms)
   `(case (catch 'game-result
@@ -32,6 +34,10 @@
 
 (defun lose ()
   (throw 'game-result 'lose))
+
+(defmacro with-cell ((var board x y) &body body)
+  `(let ((,var (pos ,board ,x ,y)))
+     ,@body))
 
 (defclass cell ()
   ((visible :reader visibility :type keyword :initform :invisible)
@@ -47,19 +53,21 @@
 (defmethod make-mine ((cell cell))
   (setf (slot-value cell 'value) -1))
 
-(defmethod make-marked ((cell cell))
-  (cond
-    ((eq (visibility cell) :marked)
+(defmethod toggle-mark ((cell cell))
+  (case (visibility cell)
+    (:marked
      (setf (slot-value cell 'visible) :invisible)
-     -1)  
-    (t
+     -1)
+    (:invisible
      (setf (slot-value cell 'visible) :marked)
-     1)))
+     1)
+    (:visible
+      0)))
 
 (defun print-value (cell)
   "Returns a string representing what the cell should be pretty-printed as."
   (case (visibility cell)
-      (:visible (cond 
+      (:visible (cond
                   ((minep cell) "*")
                   ((zerop (value cell)) " ")
                   (t (value cell))))
@@ -81,15 +89,25 @@
 (defmethod size ((board board))
   (* (width board) (height board)))
 
-(defmacro call-ignoring-out-of-bounds (fun board x y default-val &rest more-args)
+(defmacro loop-around-pos (func board x y default-val)
+  (let ((i (gensym "i"))
+        (j (gensym "j")))
+    `(loop for ,j from -1 to 1
+           do (loop for ,i from -1 to 1
+                    do (call-ignoring-out-of-bounds ,func
+                                                    ,board (+ ,x ,i) (+ ,y ,j)
+                                                    ,default-val)))))
+
+;;This macro is used to simplify the code around the edges of the board.
+(defmacro call-ignoring-out-of-bounds (fun board x y default-val)
   "Calls (fun board x y), ignoring any out-of-bound errors"
   `(if (and (>= ,x 0)
             (>= ,y 0)
             (< ,x (width ,board))
             (< ,y (height ,board)))
-       (apply ,fun ,board ,x ,y ,more-args)
+       (funcall ,fun ,board ,x ,y)
        ,default-val))
-  
+
 (defmethod pos ((board board) x y)
   (aref (board board) y x))
 
@@ -97,10 +115,10 @@
   (make-mine (pos board x y)))
 
 (defmethod mark ((board board) x y)
-  (incf (num-marked board) (make-marked (pos board x y))))
+  (incf (num-marked board) (toggle-mark (pos board x y))))
 
 (defmethod click ((board board) x y)
-  (let ((c (pos board x y)))
+  (with-cell (c board x y)
     (unless (member (visibility c) '(:visible :marked))
       (make-visible c)
       (incf (num-visible board))
@@ -109,10 +127,28 @@
          (lose))
         ((zerop (value c))
          (loop for (i j) in '((0 -1) (1 0) (0 1) (-1 0))
-               ;;ignore out-of-bounds errors to simplify code around edges of board
                do (call-ignoring-out-of-bounds #'click board (+ x i) (+ y j) nil)))
         ;;otherwise do nothing else
         ))))
+
+(defmethod middle-click ((board board) x y)
+  "If the cell has the correct number of flags adjacent to it,
+   this will click on all the other cells adjacent to it.
+
+   In a graphical situation this is usually done by middle-clicking
+   or clicking both mouse buttons simultaneously."
+  (with-cell (c board x y)
+    (when (eq (visibility c) :visible)
+      (let ((num-flags 0))
+        (loop-around-pos (lambda (board x y)
+                           (with-cell (c board x y)
+                             (when (eq (visibility c) :marked)
+                               (incf num-flags 1))))
+                         board x y
+                         nil)
+        (when (= num-flags (value c))
+          (loop-around-pos #'click board x y nil))))))
+
 
 (defmethod initialize-instance :after ((board board) &key size)
   "Places mines and sets numbers accordingly."
@@ -133,18 +169,17 @@
     (loop for (x . y) in mine-locations
           do (insert-mine board x y)))
   (loop for y from 0 below (height board)
-        do (loop for x from 0 below (width board) 
-                 do (unless (minep (pos board x y)) 
-                      (loop for k from -1 to 1
-                            with total = 0
-                            do (loop for l from -1 to 1
-                                     ;;ignore out-of-bounds errors to simplify code around edges of board
-                                     when (call-ignoring-out-of-bounds
-                                            (lambda (&rest args) (minep (apply #'pos args)))
-                                            board (+ x k) (+ y l)
-                                            nil)
-                                     do (incf total))
-                            finally (setf (slot-value (pos board x y) 'value) total))))))
+        do (loop for x from 0 below (width board)
+                 do (with-cell (c board x y)
+                      (unless (minep c)
+                        (let ((total 0))
+                          (loop-around-pos (lambda (board x y)
+                                             (with-cell (c board x y)
+                                               (when (minep c)
+                                                 (incf total))))
+                                           board x y
+                                           nil)
+                          (setf (slot-value c 'value) total)))))))
 
 (defun print-status-line (board starting-time)
   (format t "Mines remaining: ~d Time: ~d~%" (- (num-mines board) (num-marked board))
@@ -180,11 +215,13 @@
         (x nil)
         (y nil)
         (pos 0))
-    (setf x (cond ((and (char= (char input pos) #\F)
+    (setf x (cond ((and (member (char input pos) '(#\F #\D))
                         (char>= (char input (1+ pos)) #\A)
                         (char<= (char input (1+ pos)) #\Z))
                    (progn
-                     (setf action :mark)  
+                     (case (char input pos)
+                       (#\F (setf action :mark))
+                       (#\D (setf action :middle-click)))
                      (incf pos)
                      (- (char-code (char input pos)) (char-code #\A))))
                   ((and (char>= (char input pos) #\A) (char<= (char input pos) #\Z))
@@ -220,7 +257,7 @@
   (clear-screen)
   (print-welcome-message)
   (setf *random-state* (make-random-state t))
-  
+
   (let* ((size (validate-size (prompt t "Please choose a board size: ")))
          (game-board (make-instance 'board :size (or size '(5 5))))
          (starting-time (get-universal-time)))
@@ -234,7 +271,8 @@
                  (destructuring-bind (action x y) parsed-input
                    (case action
                      (:click (click game-board x y))
-                     (:mark (mark game-board x y)))
+                     (:mark (mark game-board x y))
+                     (:middle-click (middle-click game-board x y))) 
                    (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
