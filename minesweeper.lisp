@@ -131,12 +131,9 @@
         ;;otherwise do nothing else
         ))))
 
-(defmethod middle-click ((board board) x y)
+(defmethod quick-clear ((board board) x y)
   "If the cell has the correct number of flags adjacent to it,
-   this will click on all the other cells adjacent to it.
-
-   In a graphical situation this is usually done by middle-clicking
-   or clicking both mouse buttons simultaneously."
+   this will click on all the other cells adjacent to it."
   (with-cell (c board x y)
     (when (eq (visibility c) :visible)
       (let ((num-flags 0))
@@ -215,13 +212,13 @@
         (x nil)
         (y nil)
         (pos 0))
-    (setf x (cond ((and (member (char input pos) '(#\F #\D))
+    (setf x (cond ((and (member (char input pos) '(#\F #\C))
                         (char>= (char input (1+ pos)) #\A)
                         (char<= (char input (1+ pos)) #\Z))
                    (progn
                      (case (char input pos)
                        (#\F (setf action :mark))
-                       (#\D (setf action :middle-click)))
+                       (#\C (setf action :quick-clear)))
                      (incf pos)
                      (- (char-code (char input pos)) (char-code #\A))))
                   ((and (char>= (char input pos) #\A) (char<= (char input pos) #\Z))
@@ -272,7 +269,7 @@
                    (case action
                      (:click (click game-board x y))
                      (:mark (mark game-board x y))
-                     (:middle-click (middle-click game-board x y))) 
+                     (:quick-clear (quick-clear game-board x y)))
                    (when (= (num-mines game-board) (- (size game-board)
                                                       (num-visible game-board)))
                      (win))
