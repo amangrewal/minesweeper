@@ -1,4 +1,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; Minesweeper
+;;;;
+;;;; To play:
+;;;;    First, you will be asked what size board you want to use. Type in 2 integers separated by a space.
+;;;;    Then, the game will commence. Typing in a coordinate, e.g., a4, will click that cell.
+;;;;    Preceding a coordinate with an f will mark that cell with a flag.
+;;;;    Preceding a coordinate with a c will 'quick-clear' it. If the cell has the correct number
+;;;;    of flags surrounding it, all other surrounding cells will be clicked.
+;;;;
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; TODO:
 ;;;;
 ;;;;    -Better printing (ncurses?)
@@ -11,6 +23,7 @@
 ;;;;    -Tested with ccl, cmucl, ecl, sbcl
 ;;;;            -clisp works, but with subpar printing in a shell.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 #-clisp (require 'asdf)
 #-clisp (require 'uiop)
 
